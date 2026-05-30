@@ -21,13 +21,13 @@ fn main() {
 fn handle_connection(mut stream: TcpStream) {
     let buf_reader = BufReader::new(&stream);
 
-    let http_request: Vec<_> = buf_reader
+    let request_lines: Vec<_> = buf_reader
         .lines()
-        .map(|line_result| line_result.expect("request line couldn't be read."))
-        .take_while(|line| !line.is_empty()) // Two newline characters signal end of HTTP request.
-        .collect();
+        .map(|line_result| line_result.expect("request line couldn't be read as utf8"))
+        .take_while(|line| !line.is_empty()) // Two newline characters signal end of HTTP request. Without this condition the iterator will not finish because the stream is open and the sender could send more stuff.
+        .collect::<Vec<String>>();
 
-    eprintln!("Request: {http_request:#?}");
+    eprintln!("Request lines: {request_lines:?}");
 
     let response = "HTTP/1.1 200 OK\r\n\r\n";
 
