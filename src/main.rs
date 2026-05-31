@@ -1,3 +1,5 @@
+use rust_book_final_project::ThreadPool;
+
 use std::{
     fs,
     io::{BufReader, prelude::*},
@@ -10,6 +12,7 @@ const ADDR: &str = "127.0.0.1:7878";
 
 fn main() {
     let listener = TcpListener::bind(ADDR).expect("couldn't bind the listener");
+    let pool = ThreadPool::new(4);
 
     for stream in listener.incoming() {
         eprintln!("Incomming TCP connection.");
@@ -17,7 +20,9 @@ fn main() {
         // A single `stream` represents an open connection between the client and the server.
         eprintln!("Established TCP connection: {stream:?}.");
 
-        handle_connection(stream);
+        pool.execute(|| {
+            handle_connection(stream);
+        });
         // `stream` gets dropped and the connection is closed.
         eprintln!("Closing the connection.")
     }
