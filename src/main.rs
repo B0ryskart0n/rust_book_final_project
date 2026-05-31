@@ -1,7 +1,8 @@
 use std::{
-    io::BufReader,
-    io::prelude::*,
+    fs,
+    io::{BufReader, prelude::*},
     net::{TcpListener, TcpStream},
+    time::Duration,
 };
 
 const ADDR: &str = "127.0.0.1:7878";
@@ -29,9 +30,21 @@ fn handle_connection(mut stream: TcpStream) {
 
     eprintln!("Request lines: {request_lines:?}");
 
-    let response = "HTTP/1.1 200 OK\r\n\r\n";
+    let response_status = "HTTP/1.1 200 OK";
+    let response_contents =
+        fs::read_to_string("hello.html").expect("couldn't read hello.html file");
+    let response_length = response_contents.len();
+
+    // CRLFCRLF should separate the headers and the contents.
+    let response = format!(
+        "{response_status}\r\nContent-Length: {response_length}\r\n\r\n{response_contents}"
+    );
 
     stream
         .write_all(response.as_bytes())
         .expect("couldn't write a response to stream");
+    eprintln!("Sent resposne");
+
+    std::thread::sleep(Duration::from_secs(3));
+    eprintln!("Finishing handling");
 }
