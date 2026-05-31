@@ -31,8 +31,14 @@ fn handle_connection(mut stream: TcpStream) {
         .collect::<Vec<String>>();
     eprintln!("Request lines: {request_lines:?}");
 
-    let status = "HTTP/1.1 200 OK";
-    let contents = fs::read_to_string("hello.html").expect("couldn't read hello.html file");
+    // TODO Can panic if the request is empty.
+    // It seems like the browser tries to always maintain a connection, but doesn't send anything if it already has the content, so closing the browser crashes this program.
+    let (status, filename) = match &request_lines[0][..] {
+        "GET / HTTP/1.1" => ("HTTP/1.1 200 OK", "hello.html"),
+        _ => ("HTTP/1.1 404 NOT FOUND", "404.html"),
+    };
+
+    let contents = fs::read_to_string(filename).expect("couldn't read html file");
     let length = contents.len();
 
     // CRLFCRLF should separate the headers and the contents.
