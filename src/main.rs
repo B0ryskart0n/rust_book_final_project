@@ -34,7 +34,7 @@ fn handle_connection(mut stream: TcpStream) {
         .map(|line_result| line_result.expect("request line couldn't be read as utf8"))
         .take_while(|line| !line.is_empty()) // Two newline characters signal end of HTTP request. Without this condition the iterator will not finish because the stream is open and the sender could send more stuff.
         .collect::<Vec<String>>();
-    eprintln!("Request lines: {request_lines:?}.");
+    eprintln!("  Request status line: {:?}.", request_lines.get(0));
 
     // It seems like the browser tries to always maintain a connection, but doesn't send anything if it already has the content, so closing the browser gives an empty request.
     let (status, filename) = match request_lines.get(0).map(|string| &string[..]) {
@@ -62,5 +62,5 @@ fn handle_connection(mut stream: TcpStream) {
     eprintln!("  Sent resposne.");
 
     // `stream` gets dropped and the connection is closed.
-    eprintln!("  Closing the connection: {stream:?}.");
+    eprintln!("Closing the connection: {stream:?}.");
 }

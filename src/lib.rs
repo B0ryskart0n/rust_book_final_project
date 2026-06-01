@@ -45,6 +45,8 @@ impl Worker {
                 let job = receiver_guard
                     .recv()
                     .expect("channel in an ill state, can't query receiver");
+                // Free the lock before proceeding with the job. Otherwise there will be no concurrency because no other worker will be able to read the job receiver during this worker's work.
+                drop(receiver_guard);
 
                 eprintln!("    Worker {_id} received job.");
                 job();
