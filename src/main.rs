@@ -23,8 +23,6 @@ fn main() {
         pool.execute(|| {
             handle_connection(stream);
         });
-        // `stream` gets dropped and the connection is closed.
-        eprintln!("Closing the connection.")
     }
 }
 
@@ -47,7 +45,7 @@ fn handle_connection(mut stream: TcpStream) {
         }
         Some(_) => ("HTTP/1.1 404 NOT FOUND", "404.html"),
         None => {
-            eprintln!("Empty stream closed: returning.");
+            eprintln!("  Empty stream closed: returning.");
             return;
         }
     };
@@ -61,5 +59,8 @@ fn handle_connection(mut stream: TcpStream) {
     stream
         .write_all(response.as_bytes())
         .expect("couldn't write a response to stream");
-    eprintln!("Sent resposne.");
+    eprintln!("  Sent resposne.");
+
+    // `stream` gets dropped and the connection is closed.
+    eprintln!("  Closing the connection: {stream:?}.");
 }

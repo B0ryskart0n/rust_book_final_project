@@ -38,13 +38,16 @@ impl Worker {
         // Keeping the OS thread alive undefinitely with `loop`.
         let _thread = thread::spawn(move || {
             loop {
-                let job = receiver
-                    .lock()
-                    .expect("mutex in an ill state, can't lock")
+                eprintln!("    Worker {_id} waiting to receive job (locking  receiver mutex).");
+                let receiver_guard = receiver.lock().expect("mutex in an ill state, can't lock");
+
+                let job = receiver_guard
                     .recv()
                     .expect("channel in an ill state, can't query receiver");
 
-                job()
+                eprintln!("    Worker {_id} received job.");
+                job();
+                eprintln!("    Worker {_id} finished job.");
             }
         });
         Worker { _id, _thread }
