@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 
 pub struct ThreadPool {
-    _workers: Vec<Worker>,
+    workers: Vec<Worker>,
     sender: Option<Sender<Box<dyn FnOnce() + Send + 'static>>>,
 }
 impl ThreadPool {
@@ -17,10 +17,7 @@ impl ThreadPool {
             .map(|i| Worker::new(i, Arc::clone(&shared_receiver)))
             .collect();
 
-        ThreadPool {
-            _workers: workers,
-            sender,
-        }
+        ThreadPool { workers, sender }
     }
 
     pub fn execute<F: FnOnce() + Send + 'static>(&self, f: F) {
@@ -33,34 +30,35 @@ impl ThreadPool {
 }
 impl Drop for ThreadPool {
     fn drop(&mut self) {
+        eprintln!("Dropping ThreadPool.");
         // Move out the underlying `sender` and drop it. This will put the channel in an ill state.
         drop(self.sender.take());
 
         // `Vec::drain` moves the workers out of the vector, which is needed for `JoinHandle::join()`.
-        for worker in self._workers.drain(..) {
-            eprintln!("Shutting down worker {}.", worker._id);
-            worker._thread.join().unwrap();
+        for worker in self.workers.drain(..) {
+            eprintln!("Waiting for Worker {} to finish.", worker._id);
+            worker.thread.join().unwrap();
         }
     }
 }
 
 struct Worker {
     _id: usize,
-    _thread: thread::JoinHandle<()>,
+    thread: thread::JoinHandle<()>,
 }
 impl Worker {
-    fn new(_id: usize, receiver: Arc<Mutex<Receiver<Box<dyn FnOnce() + Send>>>>) -> Worker {
+    fn new(id: usize, receiver: Arc<Mutex<Receiver<Box<dyn FnOnce() + Send>>>>) -> Worker {
         // Keeping the OS thread alive undefinitely with `loop`.
-        let _thread = thread::spawn(move || {
+        let thread = thread::spawn(move || {
             loop {
-                eprintln!("    Worker {_id} trying to acquire lock for job receiver.");
+                eprintln!("    Worker {id} trying to acquire lock for job receiver.");
                 let receiver_guard = receiver.lock().expect("mutex in an ill state, can't lock");
-                eprintln!("    Worker {_id} acquired lock for job receiver.");
+                eprintln!("    Worker {id} acquired lock for job receiver.");
 
                 let job = match receiver_guard.recv() {
                     Err(_) => {
                         eprintln!(
-                            "    Worker {_id} shutting down because the sender has been disconnected."
+                            "    Worker {id} shutting down because the sender has been disconnected."
                         );
                         break;
                     }
@@ -68,13 +66,14 @@ impl Worker {
                 };
 
                 // Free the lock before proceeding with the job. Otherwise there will be no concurrency because no other worker will be able to read the job receiver during this worker's work.
+                // If, however, the `receiver.lock().unwrap()` was part of a let statement, then it would drop automatically at the end of the let statement.
                 drop(receiver_guard);
 
-                eprintln!("    Worker {_id} received job.");
+                eprintln!("    Worker {id} received job.");
                 job();
-                eprintln!("    Worker {_id} finished job.");
+                eprintln!("    Worker {id} finished job.");
             }
         });
-        Worker { _id, _thread }
+        Worker { _id: id, thread }
     }
 }
