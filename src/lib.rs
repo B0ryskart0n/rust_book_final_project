@@ -10,14 +10,16 @@ impl ThreadPool {
     pub fn new(n: usize) -> ThreadPool {
         let (sender, receiver) = mpsc::channel();
         let shared_receiver = Arc::new(Mutex::new(receiver));
-        let sender = Some(sender);
 
         // Could potentially create 0 workers, but since it's only called from my binary.
         let workers = (0..n)
             .map(|i| Worker::new(i, Arc::clone(&shared_receiver)))
             .collect();
 
-        ThreadPool { workers, sender }
+        ThreadPool {
+            workers,
+            sender: Some(sender),
+        }
     }
 
     pub fn execute<F: FnOnce() + Send + 'static>(&self, f: F) {
@@ -29,6 +31,7 @@ impl ThreadPool {
     }
 }
 impl Drop for ThreadPool {
+    // TODO There shouldn't be a possibility of a panic in drop, since this can cause a double panic, which immediately crashes tne program without cleanup process.
     fn drop(&mut self) {
         eprintln!("Dropping ThreadPool.");
         // Move out the underlying `sender` and drop it. This will put the channel in an ill state.
