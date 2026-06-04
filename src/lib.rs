@@ -42,6 +42,8 @@ impl Drop for ThreadPool {
             eprintln!("Waiting for Worker {} to finish.", worker._id);
             worker.thread.join().unwrap();
         }
+
+        eprintln!("Dropped ThreadPool.");
     }
 }
 
