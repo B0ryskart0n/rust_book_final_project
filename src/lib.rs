@@ -2,9 +2,14 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
+enum WorkOrder {
+    Job(Box<dyn FnOnce() + Send + 'static>),
+    FinishWork,
+}
+
 pub struct ThreadPool {
     workers: Vec<Worker>,
-    sender: Option<Sender<Box<dyn FnOnce() + Send + 'static>>>,
+    sender: Sender<WorkOrder>,
 }
 impl ThreadPool {
     pub fn new(n: usize) -> ThreadPool {
@@ -16,26 +21,26 @@ impl ThreadPool {
             .map(|i| Worker::new(i, Arc::clone(&shared_receiver)))
             .collect();
 
-        ThreadPool {
-            workers,
-            sender: Some(sender),
-        }
+        ThreadPool { workers, sender }
     }
 
     pub fn execute<F: FnOnce() + Send + 'static>(&self, f: F) {
         self.sender
-            .as_ref()
-            .unwrap()
-            .send(Box::new(f))
-            .expect("channel in an ill state, can't send closure");
+            .send(WorkOrder::Job(Box::new(f)))
+            .expect("channel in an ill state, can't send job");
     }
 }
 impl Drop for ThreadPool {
     // TODO There shouldn't be a possibility of a panic in drop, since this can cause a double panic, which immediately crashes tne program without cleanup process.
     fn drop(&mut self) {
         eprintln!("Dropping ThreadPool.");
-        // Move out the underlying `sender` and drop it. This will put the channel in an ill state.
-        drop(self.sender.take());
+
+        eprintln!("Sending FinishWork order for each worker.");
+        for _ in &self.workers {
+            self.sender
+                .send(WorkOrder::FinishWork)
+                .expect("channel in an ill state, can't send finish order");
+        }
 
         // `Vec::drain` moves the workers out of the vector, which is needed for `JoinHandle::join()`.
         for worker in self.workers.drain(..) {
@@ -52,7 +57,7 @@ struct Worker {
     thread: thread::JoinHandle<()>,
 }
 impl Worker {
-    fn new(id: usize, receiver: Arc<Mutex<Receiver<Box<dyn FnOnce() + Send>>>>) -> Worker {
+    fn new(id: usize, receiver: Arc<Mutex<Receiver<WorkOrder>>>) -> Worker {
         // Keeping the OS thread alive undefinitely with `loop`.
         let thread = thread::spawn(move || {
             loop {
@@ -60,21 +65,23 @@ impl Worker {
                 let receiver_guard = receiver.lock().expect("mutex in an ill state, can't lock");
                 eprintln!("    Worker {id} acquired lock for job receiver.");
 
-                let job = match receiver_guard.recv() {
-                    Err(_) => {
-                        eprintln!(
-                            "    Worker {id} shutting down because the sender has been disconnected."
-                        );
+                let job = match receiver_guard
+                    .recv()
+                    .expect("WorkOrder sender should be available.")
+                {
+                    WorkOrder::FinishWork => {
+                        eprintln!("    Worker {id} received FinishWork order: shutting down.");
                         break;
                     }
-                    Ok(job) => job,
+                    WorkOrder::Job(job) => {
+                        eprintln!("    Worker {id} received job.");
+                        job
+                    }
                 };
 
                 // Free the lock before proceeding with the job. Otherwise there will be no concurrency because no other worker will be able to read the job receiver during this worker's work.
                 // If, however, the `receiver.lock().unwrap()` was part of a let statement, then it would drop automatically at the end of the let statement.
                 drop(receiver_guard);
-
-                eprintln!("    Worker {id} received job.");
                 job();
                 eprintln!("    Worker {id} finished job.");
             }
