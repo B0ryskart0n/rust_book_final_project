@@ -31,21 +31,43 @@ impl ThreadPool {
     }
 }
 impl Drop for ThreadPool {
-    // TODO There shouldn't be a possibility of a panic in drop, since this can cause a double panic, which immediately crashes tne program without cleanup process.
     fn drop(&mut self) {
         eprintln!("Dropping ThreadPool.");
 
         eprintln!("Sending FinishWork order for each worker.");
         for _ in &self.workers {
-            self.sender
-                .send(WorkOrder::FinishWork)
-                .expect("channel in an ill state, can't send finish order");
+            if self.sender.send(WorkOrder::FinishWork).is_err() {
+                eprintln!(
+                    "WARNING: WorkOrder receiver already dropped; no way to send FinishWork orders."
+                );
+                break;
+            }
         }
 
         // `Vec::drain` moves the workers out of the vector, which is needed for `JoinHandle::join()`.
         for worker in self.workers.drain(..) {
             eprintln!("Waiting for Worker {} to finish.", worker._id);
-            worker.thread.join().unwrap();
+            match worker.thread.join() {
+                Ok(_) => eprintln!("Worker {} finished.", worker._id),
+                Err(panic_payload) => {
+                    if let Some(msg) = panic_payload.downcast_ref::<&str>() {
+                        println!(
+                            "WARNING: Worker {} thread panicked with payload: {msg:?}",
+                            worker._id
+                        );
+                    } else if let Some(msg) = panic_payload.downcast_ref::<String>() {
+                        println!(
+                            "WARNING: Worker {} thread panicked with payload: {msg:?}",
+                            worker._id
+                        );
+                    } else {
+                        println!(
+                            "WARNING: Worker {} thread panicked with unknown payload.",
+                            worker._id
+                        );
+                    }
+                }
+            }
         }
 
         eprintln!("Dropped ThreadPool.");
@@ -62,7 +84,9 @@ impl Worker {
         let thread = thread::spawn(move || {
             loop {
                 eprintln!("    Worker {id} trying to acquire lock for job receiver.");
-                let receiver_guard = receiver.lock().expect("mutex in an ill state, can't lock");
+                let receiver_guard = receiver
+                    .lock()
+                    .expect("the WorkOrder receiver mutex should be lockable");
                 eprintln!("    Worker {id} acquired lock for job receiver.");
 
                 let job = match receiver_guard
